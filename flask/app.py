@@ -127,7 +127,7 @@ def account_owner(f):
         return f(user, *args, **kwargs)
     return decorator
 
-@app.route('/create/account', methods=['PUT'])
+@app.route('/register/account', methods=['PUT'])
 def signup_user():  
     data = request.get_json()  
     try:
@@ -142,18 +142,36 @@ def signup_user():
         return jsonify({'message': 'user already exists'}), 209
     return jsonify({'message': 'registeration successfull'}), 200
 
+# TODO: handle keyerror
+@app.route('/register/device', methods=['POST'])
+@account_owner
+def update_device(e):
+    data = request.get_json()
+    device = devices.query.filter_by(device_id=data['device_id']).first()
+    if device != None and not device.device_linked and device.device_token == data['device_token']:
+        device.device_linked = True
+        device.owner_id = e.public_id
+        db.session.commit()
+        return jsonify({'message': 'device linked'}), 200
+    else:
+        return jsonify({'message': 'device not found, already linked, or the token is incorrect'}), 404
+
+# TODO: handle keyerror
 @app.route('/create/device', methods=['PUT'])
 @admin_required
 def create_device(e):
     data = request.get_json()
-    device_id = shortuuid.ShortUUID().random(length=8)
-    new_device = devices(device_id = device_id, device_type=data['device_type'], device_token=shortuuid.ShortUUID().random(length=5), device_linked=False)
-    db.session.add(new_device)
+    try:
+        device_id = shortuuid.ShortUUID().random(length=8)
+        new_device = devices(device_id = device_id, device_type=data['device_type'], device_token=shortuuid.ShortUUID().random(length=5), device_linked=False)
+        db.session.add(new_device)
+    except KeyError:
+        return jsonify({'message': 'One or more JSON Keys are invalid'}), 400
     db.session.commit()
-    return jsonify({'message': 'device created', "Device ID": device_id}), 200
+    return jsonify({'message': 'device created', "device_id": device_id}), 200
 
 @app.route('/get/authtoken', methods=['GET']) 
-def login_user():
+def generate_token():
    auth = request.authorization  
    if not auth or not auth.username or not auth.password: 
        return jsonify({'message': 'login headers missing'}), 401
@@ -181,19 +199,20 @@ def get_devices(e):
         output.append(device_data)
     return jsonify(output)
 
-# TODO: handle keyerror
-@app.route('/register/device', methods=['POST'])
-@account_owner
-def update_device(e):
-    data = request.get_json()
-    device = devices.query.filter_by(device_id=data['device_id']).first()
-    if device != None and not device.device_linked and device.device_token == data['device_token']:
-        device.device_linked = True
-        device.owner_id = e.public_id
-        db.session.commit()
-        return jsonify({'message': 'device linked'}), 200
-    else:
-        return jsonify({'message': 'device not found, already linked, or the token is incorrect'}), 404
+@app.route('/get/device/<device_id>', methods=['GET'])
+@device_owner_required
+def get_device(e, device_id):
+    device = devices.query.filter_by(device_id=device_id).first()
+    if device is None:
+        return jsonify({'message': 'No such device exists'}), 404
+    if device.owner_id != e.public_id:
+        return jsonify({'message': 'You do not own this device'}), 403
+    device_data = {}
+    device_data['device_id'] = device.device_id
+    device_data['device_type'] = device.device_type
+    device_data['device_token'] = device.device_token
+    device_data['device_linked'] = device.device_linked
+    return jsonify(device_data)
 
 # TODO: make endpoints for device data reporting, device data retrieval, device data deletion, and device un-linking
 
