@@ -1,0 +1,35 @@
+@app.route('/resetdb', methods=['DELETE'])
+#@admin_required
+def resetdb_command():
+    db.drop_all()
+    db.create_all()
+    admin = users(public_id='admin', name='developer-admin', password='sha256$7cp16Nl2XE9uSn0B$49866d0a3c91f07177b4a44e75e395820cb5d832f608b9b115b0f2e5d8051516', email='none', enabled=True) 
+    db.session.add(admin)  
+    db.session.commit()
+    return 'Database reset'
+
+@app.route('/users', methods=['GET'])
+@admin_required
+def get_all_users(e):  
+    userdatabase = users.query.all() 
+    result = []   
+    for user in userdatabase:   
+        user_data = {}   
+        user_data['public_id'] = user.public_id  
+        user_data['email'] = user.email
+        user_data['name'] = user.name 
+        result.append(user_data)   
+    return jsonify({'users': result})
+
+@app.route('/get/device/<device_id>', methods=['GET'])
+@device_owner_required
+def get_device(e, device_id):
+    device = devices.query.filter_by(device_id=device_id).first()
+    if device is None:
+        return jsonify({'message': 'No such device exists'}), 404
+    device_data = {}
+    device_data['device_id'] = device.device_id
+    device_data['device_type'] = device.device_type
+    device_data['device_token'] = device.device_token
+    device_data['device_linked'] = device.device_linked
+    return jsonify(device_data)
