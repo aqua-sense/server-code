@@ -214,7 +214,86 @@ def get_device(e, device_id):
     device_data['device_linked'] = device.device_linked
     return jsonify(device_data)
 
-# TODO: make endpoints for device data reporting, device data retrieval, device data deletion, and device un-linking
+@app.route('/get/account', methods=['GET'])
+@account_owner
+def get_account(e):
+    user = users.query.filter_by(public_id=e.public_id).first()
+    user_data = {}
+    user_data['public_id'] = user.public_id
+    user_data['name'] = user.name
+    user_data['email'] = user.email
+    user_data['enabled'] = user.enabled
+    return jsonify(user_data)
+
+@app.route('/delete/device/<device_id>', methods=['DELETE'])
+@device_owner_required
+def delete_device(e, device_id):
+    device = devices.query.filter_by(device_id=device_id).first()
+    if device is None:
+        return jsonify({'message': 'No such device exists'}), 404
+    if device.owner_id != e.public_id:
+        return jsonify({'message': 'You do not own this device'}), 403
+    db.session.delete(device)
+    db.session.commit()
+    return jsonify({'message': 'device deleted'}), 200
+
+@app.route('/delete/account', methods=['DELETE'])
+@account_owner
+def delete_account(e):
+    user = users.query.filter_by(public_id=e.public_id).first()
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({'message': 'account deleted'}), 200
+
+@app.route('/update/account', methods=['POST'])
+@account_owner
+def update_account(e):
+    data = request.get_json()
+    user = users.query.filter_by(public_id=e.public_id).first()
+    try:
+        user.name = data['name']
+        user.email = data['email']
+    except KeyError:
+        return jsonify({'message': 'One or more JSON Keys are invalid'}), 400
+    db.session.commit()
+    return jsonify({'message': 'account updated'}), 200
+
+@app.route('/update/password', methods=['POST'])
+@account_owner
+def update_password(e):
+    data = request.get_json()
+    user = users.query.filter_by(public_id=e.public_id).first()
+    try:
+        if check_password_hash(user.password, data['old_password']):
+            user.password = generate_password_hash(data['new_password'], method='sha256')
+        else:
+            return jsonify({'message': 'Incorrect Password'}), 401
+    except KeyError:
+        return jsonify({'message': 'One or more JSON Keys are invalid'}), 400
+    db.session.commit()
+    return jsonify({'message': 'password updated'}), 200
+
+@app.route('/post/device/<device_id>', methods=['POST'])
+@device_owner_required
+def post_device(e, device_id):
+    data = request.get_json()
+    device = devices.query.filter_by(device_id=device_id).first()
+    if device is None:
+        return jsonify({'message': 'No such device exists'}), 404
+    if device.owner_id != e.public_id:
+        return jsonify({'message': 'You do not own this device'}), 403
+    if device.device_linked == False:
+        return jsonify({'message': 'Device is not linked'}), 403
+    try:
+        device.log_message = data['log_message']
+        device.timestamp = func.now()
+        device.device_log_date = data['log_date']
+    except KeyError:
+        return jsonify({'message': 'One or more JSON Keys are invalid'}), 400
+    db.session.commit()
+    return jsonify({'message': 'device log posted'}), 200
+
+# TODO: make endpoints for device data reporting, device data retrieval
 
 if  __name__ == '__main__':  
      app.run(debug=True)
