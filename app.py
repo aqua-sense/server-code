@@ -6,6 +6,8 @@ from dotenv import dotenv_values
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.mutable import MutableDict
 from werkzeug.security import check_password_hash, generate_password_hash
 from flask import Flask, jsonify, request
 
@@ -21,17 +23,17 @@ db = SQLAlchemy(app)
 # Users table - stores user information
 class users(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    public_id = db.Column(db.String(), unique=True, nullable=False)
-    email = db.Column(db.String(), unique=True, nullable=False)
-    name = db.Column(db.String(), unique=True, nullable=False)
-    password = db.Column(db.String(), nullable=False)
-    enabled = db.Column(db.Boolean, nullable=False)
+    user_id = db.Column(db.String(), unique=True, nullable=False)
+    user_email = db.Column(db.String(), unique=True, nullable=False)
+    user_name = db.Column(db.String(), unique=True, nullable=False)
+    user_password = db.Column(db.String(), nullable=False)
+    user_enabled = db.Column(db.Boolean, nullable=False)
 
 # Devices table - stores device information
 class devices(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.String(), unique=True, nullable=False)
-    owner_id = db.Column(db.String(), ForeignKey('users.public_id'))
+    device_owner_id = db.Column(db.String(), ForeignKey('users.user_id'))
     device_type = db.Column(db.String(), nullable=False)
     device_token = db.Column(db.String(), unique=True, nullable=False)
     device_linked = db.Column(db.Boolean, nullable=False)
@@ -40,10 +42,9 @@ class devices(db.Model):
 # Device Data table - stores device sensor data for processing
 class device_data(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    device_id = db.Column(db.String(), ForeignKey('devices.device_id'), nullable=False)
-    timestamp = db.Column(db.DateTime(), nullable=False)
-    device_log_message = db.Column(db.String(), nullable=False)
-    device_log_date = db.Column(db.DateTime(), nullable=False)
+    device_log_id = db.Column(db.String(), ForeignKey('devices.device_id'), nullable=False)
+    device_log_timestamp = db.Column(db.DateTime(), nullable=False)
+    device_log_message = db.Column(MutableDict.as_mutable(JSONB), nullable=False)
 
 # Setup authentication wrappers
 # account_required - does the user have a valid token and is the account enabled
@@ -57,7 +58,7 @@ def account_required(f):
             return {"message": "The authentication token is missing or invalid"}, 401
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            current_user = users.query.filter_by(public_id=data['public_id']).first()
+            current_user = users.query.filter_by(user_id=data['user_id']).first()
         except:
             return jsonify({'message': 'The authentication token is missing, invalid or expired'}), 401
         if current_user is None:
@@ -78,7 +79,7 @@ def admin_required(f):
             return {"message": "The authentication token is missing"}, 401
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            current_user = users.query.filter_by(public_id=data['public_id']).first()
+            current_user = users.query.filter_by(user_id=data['user_id']).first()
         except:
             return jsonify({'message': 'The authentication token is invalid or expired'}), 401
         if not current_user.enabled:
@@ -100,13 +101,13 @@ def device_owner_required(f):
             return {"message": "The authentication token is missing, invalid or expired"}, 401
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            current_user = users.query.filter_by(public_id=data['public_id']).first()
+            current_user = users.query.filter_by(user_id=data['user_id']).first()
             device = devices.query.filter_by(device_id=device_id).first()
         except:
             return jsonify({'message': 'The authentication token is invalid or expired'}), 401
         if not current_user.enabled:
             return {"message": "This account has been disabled. Please try again later",}, 403
-        if current_user.public_id == device.owner_id:
+        if current_user.user_id == device.owner_id:
             return f(current_user, *args, **kwargs)
     return decorator
 
@@ -121,7 +122,7 @@ def account_owner(f):
             return {"message": "The authentication token is missing, invalid or expired"}, 401
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            user = users.query.filter_by(public_id=data['public_id']).first()
+            user = users.query.filter_by(user_id=data['user_id']).first()
         except:
             return jsonify({'message': 'The authentication token is invalid or expired'}), 401
         return f(user, *args, **kwargs)
@@ -132,7 +133,7 @@ def signup_user():
     data = request.get_json()  
     try:
         hashed_password = generate_password_hash(data['password'], method='sha256')
-        new_user = users(public_id=str(shortuuid.ShortUUID().random(length=5)), name=data['name'], password=hashed_password, email=data['email'], enabled=True) 
+        new_user = users(user_id=str(shortuuid.ShortUUID().random(length=5)), name=data['name'], password=hashed_password, email=data['email'], enabled=True) 
         db.session.add(new_user)  
     except KeyError:
         return jsonify({'message': 'One or more JSON Keys are invalid'}), 400
@@ -150,7 +151,7 @@ def update_device(e):
     device = devices.query.filter_by(device_id=data['device_id']).first()
     if device != None and not device.device_linked and device.device_token == data['device_token']:
         device.device_linked = True
-        device.owner_id = e.public_id
+        device.owner_id = e.user_id
         db.session.commit()
         return jsonify({'message': 'device linked'}), 200
     else:
@@ -178,7 +179,7 @@ def generate_token():
    user = users.query.filter_by(name=auth.username).first()  
    if user != None:
         if check_password_hash(user.password, auth.password):
-            token = jwt.encode({'public_id' : user.public_id, 'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=60)}, app.config['SECRET_KEY'], "HS256")
+            token = jwt.encode({'user_id' : user.user_id, 'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=60)}, app.config['SECRET_KEY'], "HS256")
             return jsonify({'token' : token})
         else:
             return jsonify({'message': 'Incorrect Login Details'}), 401
@@ -188,7 +189,7 @@ def generate_token():
 @app.route('/get/devices', methods=['GET'])
 @account_owner
 def get_devices(e):
-    device_list = devices.query.filter_by(owner_id=e.public_id).all()
+    device_list = devices.query.filter_by(owner_id=e.user_id).all()
     output = []
     for device in device_list:
         device_data = {}
@@ -205,7 +206,7 @@ def get_device(e, device_id):
     device = devices.query.filter_by(device_id=device_id).first()
     if device is None:
         return jsonify({'message': 'No such device exists'}), 404
-    if device.owner_id != e.public_id:
+    if device.owner_id != e.user_id:
         return jsonify({'message': 'You do not own this device'}), 403
     device_data = {}
     device_data['device_id'] = device.device_id
@@ -217,9 +218,9 @@ def get_device(e, device_id):
 @app.route('/get/account', methods=['GET'])
 @account_owner
 def get_account(e):
-    user = users.query.filter_by(public_id=e.public_id).first()
+    user = users.query.filter_by(user_id=e.user_id).first()
     user_data = {}
-    user_data['public_id'] = user.public_id
+    user_data['user_id'] = user.user_id
     user_data['name'] = user.name
     user_data['email'] = user.email
     user_data['enabled'] = user.enabled
@@ -231,7 +232,7 @@ def delete_device(e, device_id):
     device = devices.query.filter_by(device_id=device_id).first()
     if device is None:
         return jsonify({'message': 'No such device exists'}), 404
-    if device.owner_id != e.public_id:
+    if device.owner_id != e.user_id:
         return jsonify({'message': 'You do not own this device'}), 403
     db.session.delete(device)
     db.session.commit()
@@ -240,16 +241,26 @@ def delete_device(e, device_id):
 @app.route('/delete/account', methods=['DELETE'])
 @account_owner
 def delete_account(e):
-    user = users.query.filter_by(public_id=e.public_id).first()
+    user = users.query.filter_by(user_id=e.user_id).first()
     db.session.delete(user)
     db.session.commit()
     return jsonify({'message': 'account deleted'}), 200
+
+@app.route('/delete/database', methods=['DELETE'])
+#@admin_required
+def resetdb_command():
+    db.drop_all()
+    db.create_all()
+    admin = users(user_id='admin', name='developer-admin', password='sha256$7cp16Nl2XE9uSn0B$49866d0a3c91f07177b4a44e75e395820cb5d832f608b9b115b0f2e5d8051516', email='none', enabled=True) 
+    db.session.add(admin)  
+    db.session.commit()
+    return jsonify({'message': 'database reset'}), 200
 
 @app.route('/update/account', methods=['POST'])
 @account_owner
 def update_account(e):
     data = request.get_json()
-    user = users.query.filter_by(public_id=e.public_id).first()
+    user = users.query.filter_by(user_id=e.user_id).first()
     try:
         user.name = data['name']
         user.email = data['email']
@@ -262,7 +273,7 @@ def update_account(e):
 @account_owner
 def update_password(e):
     data = request.get_json()
-    user = users.query.filter_by(public_id=e.public_id).first()
+    user = users.query.filter_by(user_id=e.user_id).first()
     try:
         if check_password_hash(user.password, data['old_password']):
             user.password = generate_password_hash(data['new_password'], method='sha256')
@@ -280,7 +291,7 @@ def post_device(e, device_id):
     device = devices.query.filter_by(device_id=device_id).first()
     if device is None:
         return jsonify({'message': 'No such device exists'}), 404
-    if device.owner_id != e.public_id:
+    if device.owner_id != e.user_id:
         return jsonify({'message': 'You do not own this device'}), 403
     if device.device_linked == False:
         return jsonify({'message': 'Device is not linked'}), 403
