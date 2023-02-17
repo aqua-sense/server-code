@@ -1,0 +1,46 @@
+{
+    "devices": [
+        {
+            "device_id": "",
+            "device_type": "",
+            "device_token": "",
+            "device_linked": true,
+            "properties": [
+                {
+                    "PH": 7.0,
+                    "CHLR": 1.5,
+                    "AIRTEMP": 1500,
+                    "TEMP": 25.0
+                }
+            ]
+        },
+        {
+            "device_id": "",
+            "device_type": "",
+            "device_token": "",
+            "device_linked": true,
+            "properties": [
+                {
+                    "PH": 7.0,
+                    "CHLR": 1.5,
+                    "AIRTEMP": 1500,
+                    "TEMP": 25.0
+                }
+            ]
+        },
+        {
+            "device_id": "",
+            "device_type": "",
+            "device_token": "",
+            "device_linked": true,
+            "properties": [
+                {
+                    "PH": 7.0,
+                    "CHLR": 1.5,
+                    "AIRTEMP": 1500,
+                    "TEMP": 25.0
+                }
+            ]
+        }
+    ]
+}
